@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login | POS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --blue:     #2563eb;
+      --blue-bg:  #eff6ff;
+      --red:      #dc2626;
+      --red-bg:   #fef2f2;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-900: #111827;
+      --radius:   8px;
+      --shadow:   0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #f9fafb;
+      color: var(--gray-900);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 360px;
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 2rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1.75rem;
+    }
+    .brand-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+    .brand h1 { font-size: 0.95rem; font-weight: 700; }
+    .brand span { font-size: 0.8rem; color: var(--gray-400); }
+
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    .subtitle {
+      font-size: 0.8rem;
+      color: var(--gray-500);
+      margin-bottom: 1.5rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--gray-500);
+      margin-bottom: 0.35rem;
+    }
+
+    input[type="password"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      font-family: inherit;
+      font-size: 0.9rem;
+      color: var(--gray-900);
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    input[type="password"]:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
+    input::placeholder { color: var(--gray-400); }
+
+    .error {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--red-bg);
+      border: 1px solid #fecaca;
+      color: var(--red);
+      border-radius: var(--radius);
+      padding: 0.6rem 0.75rem;
+      font-size: 0.82rem;
+      font-weight: 500;
+      margin-bottom: 1rem;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      margin-top: 1rem;
+      padding: 0.65rem;
+      background: var(--blue);
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn:hover  { background: #1d4ed8; }
+    .btn:active { background: #1e40af; }
+
+    .back {
+      display: block;
+      text-align: center;
+      margin-top: 1.1rem;
+      font-size: 0.78rem;
+      color: var(--gray-400);
+      text-decoration: none;
+    }
+    .back:hover { color: var(--blue); }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="brand">
+      <div class="brand-dot"></div>
+      <h1>POS</h1>
+      <span>Admin Area</span>
+    </div>
+
+    <h2>Sign in</h2>
+    <p class="subtitle">Enter the admin password to continue.</p>
+
+    {% if error %}
+    <div class="error">
+      <span>⚠</span> {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/admin/login">
+      <label for="password">Password</label>
+      <input
+        type="password"
+        id="password"
+        name="password"
+        placeholder="Enter password"
+        autocomplete="current-password"
+        autofocus
+        required
+      />
+      <button type="submit" class="btn">Continue →</button>
+    </form>
+
+    <a href="/" class="back">← Back to POS Terminal</a>
+  </div>
+
+</body>
+</html>

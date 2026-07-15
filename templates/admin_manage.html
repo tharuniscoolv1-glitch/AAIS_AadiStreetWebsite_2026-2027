@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manage | POS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    :root {
+      --blue:      #2563eb;
+      --blue-light:#eff6ff;
+      --blue-mid:  #dbeafe;
+      --green:     #16a34a;
+      --green-bg:  #f0fdf4;
+      --red:       #dc2626;
+      --red-bg:    #fef2f2;
+      --amber:     #d97706;
+      --gray-50:   #f9fafb;
+      --gray-100:  #f3f4f6;
+      --gray-200:  #e5e7eb;
+      --gray-300:  #d1d5db;
+      --gray-400:  #9ca3af;
+      --gray-500:  #6b7280;
+      --gray-600:  #4b5563;
+      --gray-900:  #111827;
+      --radius:    8px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+      --shadow:    0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+    }
+
+    body { font-family:'Inter',system-ui,sans-serif; background:var(--gray-50); color:var(--gray-900); min-height:100vh; }
+
+    /* ── Top bar ─────────────────────────────────────────────────────── */
+    .topbar {
+      position:sticky; top:0; z-index:50;
+      background:#fff; border-bottom:1px solid var(--gray-200);
+      padding:0 1.5rem;
+      display:flex; align-items:center; height:52px; gap:1rem;
+    }
+    .topbar .brand { font-size:0.9rem; font-weight:700; color:var(--gray-900); margin-right:1rem; }
+    .tab-group { display:flex; gap:1px; }
+    .tab-btn {
+      padding:0.35rem 0.9rem; border:none; background:transparent;
+      font-family:inherit; font-size:0.8rem; font-weight:500;
+      color:var(--gray-500); cursor:pointer; border-radius:6px;
+      transition:0.15s;
+    }
+    .tab-btn:hover { background:var(--gray-100); color:var(--gray-900); }
+    .tab-btn.active { background:var(--blue-light); color:var(--blue); font-weight:600; }
+
+    .topbar-right { margin-left:auto; display:flex; align-items:center; gap:0.5rem; }
+
+    /* Lock status — no longer needed */
+
+    .logout-btn {
+      font-size:0.78rem; color:var(--gray-500); text-decoration:none;
+      padding:0.3rem 0.75rem; border:1px solid var(--gray-200); border-radius:6px;
+      background:#fff; transition:0.15s; cursor:pointer;
+    }
+    .logout-btn:hover { color:var(--red); border-color:#fecaca; background:var(--red-bg); }
+
+    .back-link { font-size:0.78rem; color:var(--gray-500); text-decoration:none; padding:0.3rem 0.75rem; border:1px solid var(--gray-200); border-radius:6px; transition:0.15s; }
+    .back-link:hover { color:var(--blue); border-color:var(--blue); }
+
+    /* ── IP strip ────────────────────────────────────────────────────── */
+    .ip-strip {
+      background:var(--blue-light); border-bottom:1px solid var(--blue-mid);
+      padding:0.45rem 1.5rem; display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;
+    }
+    .ip-label { font-size:0.68rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--gray-500); }
+    .ip-chips { display:flex; gap:0.4rem; flex-wrap:wrap; }
+    .ip-chip { display:inline-flex; align-items:center; gap:0.35rem; background:#fff; border:1px solid var(--blue-mid); border-radius:999px; padding:0.15rem 0.65rem; }
+    .ip-chip a { font-size:0.76rem; font-weight:500; color:var(--blue); text-decoration:none; font-family:'Courier New',monospace; }
+    .ip-chip a:hover { text-decoration:underline; }
+    .copy-btn { border:none; background:transparent; color:var(--blue); cursor:pointer; font-size:0.68rem; font-weight:600; font-family:inherit; padding:0 0.2rem; transition:0.15s; }
+    .copy-btn:hover { color:#1d4ed8; }
+    .copy-btn.copied { color:var(--green); }
+
+    /* ── Password modal ──────────────────────────────────────────────── */
+    .modal-overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:200;
+      display:flex; align-items:center; justify-content:center;
+      opacity:0; pointer-events:none; transition:opacity 0.2s;
+    }
+    .modal-overlay.open { opacity:1; pointer-events:all; }
+    .modal {
+      background:#fff; border:1px solid var(--gray-200); border-radius:var(--radius);
+      padding:1.75rem; width:340px; max-width:90%;
+      box-shadow:0 10px 40px rgba(0,0,0,0.12);
+      transform:translateY(6px); transition:transform 0.2s;
+    }
+    .modal-overlay.open .modal { transform:translateY(0); }
+    .modal h2 { font-size:1rem; font-weight:700; margin-bottom:0.35rem; }
+    .modal p  { font-size:0.8rem; color:var(--gray-500); margin-bottom:1.25rem; }
+    .modal input { width:100%; padding:0.55rem 0.75rem; border:1px solid var(--gray-200); border-radius:var(--radius); font-family:inherit; font-size:0.875rem; outline:none; transition:0.15s; }
+    .modal input:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(37,99,235,0.12); }
+    .modal-err { font-size:0.78rem; color:var(--red); margin-top:0.4rem; min-height:1.2rem; }
+    .modal-actions { display:flex; gap:0.5rem; margin-top:1rem; }
+
+    /* ── Confirm-delete modal ────────────────────────────────────────── */
+    #confirm-modal .modal h2 { color:var(--red); }
+
+    /* ── Toast ───────────────────────────────────────────────────────── */
+    #toast {
+      position:fixed; bottom:1.5rem; right:1.5rem; z-index:300;
+      padding:0.7rem 1.1rem; border-radius:var(--radius); border:1px solid;
+      font-size:0.82rem; font-weight:500;
+      opacity:0; transform:translateY(6px);
+      transition:opacity 0.22s, transform 0.22s;
+      pointer-events:none; max-width:340px;
+    }
+    #toast.show { opacity:1; transform:translateY(0); }
+    #toast.ok  { background:var(--green-bg); border-color:#bbf7d0; color:var(--green); }
+    #toast.err { background:var(--red-bg); border-color:#fecaca; color:var(--red); }
+
+    /* ── Page ────────────────────────────────────────────────────────── */
+    .page { max-width:960px; margin:0 auto; padding:1.75rem 1.5rem 4rem; }
+    .tab-pane { display:none; }
+    .tab-pane.active { display:block; }
+
+    /* ── Section header ──────────────────────────────────────────────── */
+    .section-hdr {
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;
+    }
+    .section-hdr h2 { font-size:0.875rem; font-weight:700; }
+
+    /* ── Add form panel ──────────────────────────────────────────────── */
+    .add-panel {
+      background:#fff; border:1px solid var(--gray-200);
+      border-radius:var(--radius); padding:1.1rem 1.25rem; margin-bottom:1.25rem;
+    }
+    .add-panel label { font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--gray-500); display:block; margin-bottom:0.3rem; }
+    .form-row { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; }
+    .form-row .field { flex:1 1 130px; display:flex; flex-direction:column; }
+    input[type="text"], input[type="number"], input[type="password"] {
+      width:100%; padding:0.5rem 0.7rem; border:1px solid var(--gray-200);
+      border-radius:var(--radius); font-family:inherit; font-size:0.85rem;
+      color:var(--gray-900); outline:none; transition:0.15s;
+    }
+    input:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(37,99,235,0.12); }
+    input::placeholder { color:var(--gray-400); }
+
+    /* ── Buttons ─────────────────────────────────────────────────────── */
+    .btn {
+      display:inline-flex; align-items:center; gap:0.3rem;
+      padding:0.5rem 1rem; border:none; border-radius:var(--radius);
+      font-family:inherit; font-size:0.8rem; font-weight:600;
+      cursor:pointer; transition:0.15s; white-space:nowrap;
+    }
+    .btn-primary { background:var(--blue); color:#fff; }
+    .btn-primary:hover { background:#1d4ed8; }
+    .btn-ghost   { background:#fff; color:var(--gray-600); border:1px solid var(--gray-200); }
+    .btn-ghost:hover { border-color:var(--gray-400); color:var(--gray-900); }
+    .btn-danger  { background:var(--red-bg); color:var(--red); border:1px solid #fecaca; }
+    .btn-danger:hover { background:#fee2e2; }
+    .btn-success { background:var(--green-bg); color:var(--green); border:1px solid #bbf7d0; }
+    .btn-success:hover { background:#dcfce7; }
+    .btn-sm  { padding:0.35rem 0.7rem; font-size:0.76rem; }
+    .btn-xs  { padding:0.25rem 0.55rem; font-size:0.72rem; }
+
+
+
+    /* ── Data table ──────────────────────────────────────────────────── */
+    .table-wrap { background:#fff; border:1px solid var(--gray-200); border-radius:var(--radius); overflow:hidden; }
+    table { width:100%; border-collapse:collapse; }
+    thead th { padding:0.7rem 1.1rem; text-align:left; font-size:0.7rem; font-weight:700; color:var(--gray-400); text-transform:uppercase; letter-spacing:0.06em; border-bottom:1px solid var(--gray-100); background:var(--gray-50); }
+    tbody tr { border-bottom:1px solid var(--gray-100); transition:background 0.1s; }
+    tbody tr:last-child { border-bottom:none; }
+    tbody tr:hover { background:var(--gray-50); }
+    tbody td { padding:0.75rem 1.1rem; font-size:0.85rem; vertical-align:middle; }
+    td input.inline-in { padding:0.35rem 0.55rem; font-size:0.82rem; border-radius:6px; width:100%; min-width:70px; }
+
+    .id-pill { display:inline-block; padding:0.15rem 0.55rem; border-radius:999px; font-size:0.72rem; font-weight:700; background:var(--blue-light); color:var(--blue); }
+    .bal-hi  { color:var(--green); font-weight:600; }
+    .bal-med { color:var(--amber); font-weight:600; }
+    .bal-lo  { color:var(--red);   font-weight:600; }
+    .actions { display:flex; gap:0.35rem; }
+
+    /* ── Stalls grid ─────────────────────────────────────────────────── */
+    .stalls-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:1rem; }
+    .stall-card { background:#fff; border:1px solid var(--gray-200); border-radius:var(--radius); overflow:hidden; }
+    .stall-hdr  { padding:0.65rem 1rem; border-bottom:1px solid var(--gray-100); display:flex; align-items:center; justify-content:space-between; background:var(--gray-50); }
+    .stall-name { font-size:0.82rem; font-weight:700; color:var(--gray-900); }
+    .prod-row   { display:flex; align-items:center; gap:0.4rem; padding:0.5rem 0.85rem; border-bottom:1px solid var(--gray-100); }
+    .prod-row:last-child { border-bottom:none; }
+    .prod-name  { flex:1; font-size:0.82rem; }
+    .prod-price { font-size:0.8rem; font-weight:600; color:var(--gray-600); white-space:nowrap; }
+    .edit-inputs { display:none; flex:1; gap:0.35rem; align-items:center; }
+    .prod-row.editing .prod-name,
+    .prod-row.editing .prod-price { display:none; }
+    .prod-row.editing .edit-inputs { display:flex; }
+    .edit-inputs input { flex:1; min-width:50px; }
+    .add-prod-row { display:flex; gap:0.4rem; padding:0.6rem 0.85rem; border-top:1px solid var(--gray-100); background:var(--gray-50); }
+    .add-prod-row input { flex:1; min-width:40px; }
+
+    /* ── New stall panel ─────────────────────────────────────────────── */
+    .new-stall-panel { background:#fff; border:1px dashed var(--gray-300); border-radius:var(--radius); padding:1.1rem 1.25rem; margin-bottom:1.25rem; }
+    .new-stall-panel label { font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--gray-500); display:block; margin-bottom:0.3rem; }
+
+    /* ── Empty ───────────────────────────────────────────────────────── */
+    .empty { padding:2rem; text-align:center; color:var(--gray-400); font-size:0.85rem; }
+
+    @media(max-width:600px) {
+      .topbar { padding:0 1rem; }
+      .page { padding:1.25rem 0.85rem 3rem; }
+      .stalls-grid { grid-template-columns:1fr; }
+      .form-row { flex-direction:column; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Top bar ─────────────────────────────────────────────────────── -->
+<nav class="topbar">
+  <span class="brand">Manage</span>
+  <div class="tab-group">
+    <button class="tab-btn active" id="btn-cards" onclick="switchTab('cards')">
+      Cards <span id="cnt-cards">{{ users|length }}</span>
+    </button>
+    <button class="tab-btn" id="btn-stalls" onclick="switchTab('stalls')">
+      Stalls <span id="cnt-stalls">{{ stalls_dict|length }}</span>
+    </button>
+  </div>
+  <div class="topbar-right">
+    <a href="/admin/logout" class="logout-btn">Logout</a>
+    <a href="/" class="back-link">← Terminal</a>
+  </div>
+</nav>
+
+<!-- ── IP Strip ────────────────────────────────────────────────────── -->
+<div class="ip-strip">
+  <span class="ip-label">LAN:</span>
+  <div class="ip-chips">
+    {% for ip in lan_ips %}
+    <div class="ip-chip">
+      <a href="http://{{ ip }}:{{ port }}" target="_blank" rel="noopener">http://{{ ip }}:{{ port }}</a>
+      <button class="copy-btn" onclick="copyIp(this,'http://{{ ip }}:{{ port }}')">Copy</button>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ── Toast ───────────────────────────────────────────────────────── -->
+<div id="toast"></div>
+
+<!-- ── Password Modal ──────────────────────────────────────────────── -->
+<div class="modal-overlay" id="pw-modal">
+  <div class="modal">
+    <h2>Admin Password</h2>
+    <p>Enter the password to unlock editing.</p>
+    <input type="password" id="pw-input" placeholder="Password" autocomplete="current-password" />
+    <div class="modal-err" id="pw-err"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('pw-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitPassword()">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Confirm Delete Modal ─────────────────────────────────────────── -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal">
+    <h2 id="confirm-title">Confirm Delete</h2>
+    <p id="confirm-body">This cannot be undone.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('confirm-modal')">Cancel</button>
+      <button class="btn btn-danger" id="confirm-ok">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div class="page">
+
+  <!-- ── CARDS TAB ──────────────────────────────────────────────────── -->
+  <div class="tab-pane active" id="tab-cards">
+
+    <div class="add-panel">
+      <div class="form-row">
+        <div class="field"><label>Card ID</label><input type="text" id="nc-id" placeholder="USR010" autocapitalize="characters" /></div>
+        <div class="field"><label>Name</label><input type="text" id="nc-name" placeholder="Full name" /></div>
+        <div class="field" style="max-width:120px"><label>Balance (₹)</label><input type="number" id="nc-bal" placeholder="0" min="0" step="0.01" value="0" /></div>
+        <button class="btn btn-primary action-btn" onclick="addCard()">Add Card</button>
+      </div>
+    </div>
+
+    <div class="section-hdr"><h2>All Cards</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Name</th><th>Balance</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="cards-body">
+          {% for u in users %}
+          <tr id="row-{{ u['ID'] }}" data-id="{{ u['ID'] }}">
+            <td><span class="id-pill">{{ u['ID'] }}</span></td>
+            <td class="cell-name">{{ u['Name'] }}</td>
+            <td class="cell-bal">
+              <span class="{% if u['Balance']>=300 %}bal-hi{% elif u['Balance']>0 %}bal-med{% else %}bal-lo{% endif %}">
+                ₹{{ "%.2f"|format(u['Balance']) }}
+              </span>
+            </td>
+            <td>
+              <div class="actions">
+                <button class="btn btn-ghost btn-sm action-btn" onclick="startEditCard('{{ u['ID'] }}')">Edit</button>
+                <button class="btn btn-danger btn-sm action-btn" onclick="confirmDelete('Delete card {{ u['ID'] }}?','Cannot be undone.',()=>deleteCard('{{ u['ID'] }}'))">Delete</button>
+              </div>
+            </td>
+          </tr>
+          <tr id="edit-{{ u['ID'] }}" style="display:none; background:#fafafa;">
+            <td><span class="id-pill">{{ u['ID'] }}</span></td>
+            <td><input type="text" class="inline-in e-name" value="{{ u['Name'] }}" /></td>
+            <td><input type="number" class="inline-in e-bal" value="{{ u['Balance'] }}" min="0" step="0.01" style="max-width:110px" /></td>
+            <td>
+              <div class="actions">
+                <button class="btn btn-success btn-sm" onclick="saveEditCard('{{ u['ID'] }}')">Save</button>
+                <button class="btn btn-ghost btn-sm" onclick="cancelEdit('{{ u['ID'] }}')">Cancel</button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not users %}<div class="empty">No cards yet.</div>{% endif %}
+    </div>
+  </div>
+
+  <!-- ── STALLS TAB ──────────────────────────────────────────────────── -->
+  <div class="tab-pane" id="tab-stalls">
+
+    <div class="new-stall-panel">
+      <div class="form-row">
+        <div class="field" style="max-width:150px"><label>Stall ID</label><input type="text" id="ns-id" placeholder="STALL-F" /></div>
+        <div class="field"><label>First Product</label><input type="text" id="ns-prod" placeholder="Product name" /></div>
+        <div class="field" style="max-width:110px"><label>Price (₹)</label><input type="number" id="ns-price" placeholder="0" min="0" step="0.01" value="0" /></div>
+        <button class="btn btn-primary action-btn" onclick="addNewStall()">Create Stall</button>
+      </div>
+    </div>
+
+    <div class="section-hdr"><h2>Stalls &amp; Products</h2></div>
+    <div class="stalls-grid" id="stalls-grid">
+      {% for stall_id, stall_info in stalls_dict.items() %}
+      {% set safe = stall_id.replace('-','_') %}
+      <div class="stall-card" id="sc-{{ safe }}">
+        <div class="stall-hdr">
+          <span class="stall-name">{{ stall_id }}</span>
+          <button class="btn btn-danger btn-xs action-btn"
+            onclick="confirmDelete('Delete stall {{ stall_id }}?','All products will be removed.',()=>deleteStall('{{ stall_id }}'))">
+            Delete Stall
+          </button>
+        </div>
+        
+        <!-- Stall Password management field -->
+        <div style="padding: 0.5rem 0.85rem; border-bottom: 1px solid var(--gray-100); display: flex; gap: 0.4rem; align-items: center; background: #fff;">
+          <label style="font-size: 0.65rem; color: var(--gray-500); margin: 0; text-transform: uppercase;">Pass:</label>
+          <input type="text" id="sp-{{ safe }}" value="{{ stall_info.password }}" placeholder="No password" style="padding: 0.25rem 0.45rem; font-size: 0.78rem; border-radius: 4px; flex: 1;" />
+          <button class="btn btn-ghost btn-xs action-btn" onclick="saveStallPassword('{{ stall_id }}', 'sp-{{ safe }}')">Save</button>
+        </div>
+
+        <div id="prods-{{ safe }}">
+          {% for p in stall_info.products %}
+          <div class="prod-row" id="pr-{{ p.row_id }}">
+            <span class="prod-name">{{ p.product }}</span>
+            <span class="prod-price">₹{{ "%.2f"|format(p.price) }}</span>
+            <div class="edit-inputs">
+              <input type="text" class="ep-name" value="{{ p.product }}" />
+              <input type="number" class="ep-price" value="{{ p.price }}" min="0" step="0.01" style="max-width:75px" />
+            </div>
+            <div class="actions">
+              <button class="btn btn-ghost btn-xs ep-edit action-btn" onclick="startEditProd({{ p.row_id }})">Edit</button>
+              <button class="btn btn-success btn-xs ep-save" style="display:none" onclick="saveEditProd({{ p.row_id }})">Save</button>
+              <button class="btn btn-ghost btn-xs ep-cancel" style="display:none" onclick="cancelEditProd({{ p.row_id }})">✕</button>
+              <button class="btn btn-danger btn-xs ep-del action-btn"
+                onclick="confirmDelete('Delete {{ p.product }}?','From stall {{ stall_id }}.',()=>deleteProd({{ p.row_id }}))">Del</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="add-prod-row">
+          <input type="text" class="ap-name" placeholder="Product name" />
+          <input type="number" class="ap-price" placeholder="Price" min="0" step="0.01" style="max-width:80px" value="0" />
+          <button class="btn btn-ghost btn-xs action-btn" onclick="addProdToStall('{{ stall_id }}',this)">Add</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if not stalls_dict %}<div class="empty">No stalls yet. Create one above.</div>{% endif %}
+  </div>
+
+</div><!-- /page -->
+
+<script>
+"use strict";
+
+/* ── Tab ─────────────────────────────────────────────────────────── */
+function switchTab(t) {
+  ["cards","stalls"].forEach(n => {
+    document.getElementById("tab-"+n).classList.toggle("active", n===t);
+    document.getElementById("btn-"+n).classList.toggle("active", n===t);
+  });
+}
+
+/* ── Toast ───────────────────────────────────────────────────────── */
+let _tt;
+function toast(msg, ok=true) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className   = "show " + (ok?"ok":"err");
+  clearTimeout(_tt);
+  _tt = setTimeout(() => el.classList.remove("show"), ok?3000:5000);
+}
+
+/* ── Modals ──────────────────────────────────────────────────────── */
+function openModal(id)  { document.getElementById(id).classList.add("open"); }
+function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+
+// Close on overlay click
+document.querySelectorAll(".modal-overlay").forEach(el =>
+  el.addEventListener("click", e => { if(e.target===el) el.classList.remove("open"); })
+);
+
+/* ── Confirm-delete modal ────────────────────────────────────────── */
+let _confirmCb = null;
+function confirmDelete(title, body, cb) {
+  document.getElementById("confirm-title").textContent = title;
+  document.getElementById("confirm-body").textContent  = body;
+  _confirmCb = cb;
+  openModal("confirm-modal");
+}
+document.getElementById("confirm-ok").addEventListener("click", () => {
+  if (_confirmCb) _confirmCb();
+  closeModal("confirm-modal"); _confirmCb = null;
+});
+
+/* ── API helper ──────────────────────────────────────────────────── */
+async function post(url, data) {
+  const r = await fetch(url, {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)
+  });
+  return r.json();
+}
+
+/* ── CARD MANAGEMENT ─────────────────────────────────────────────── */
+async function addCard() {
+  const id  = document.getElementById("nc-id").value.trim().toUpperCase();
+  const nm  = document.getElementById("nc-name").value.trim();
+  const bal = parseFloat(document.getElementById("nc-bal").value)||0;
+  if (!id||!nm) { toast("Card ID and Name are required.", false); return; }
+  const res = await post("/admin/card/add", {id, name:nm, balance:bal});
+  if (!res.ok) { toast(res.message, false); return; }
+  toast(res.message);
+  const bc = balClass(bal);
+  const rows = `
+    <tr id="row-${id}" data-id="${id}">
+      <td><span class="id-pill">${id}</span></td>
+      <td class="cell-name">${esc(nm)}</td>
+      <td class="cell-bal"><span class="${bc}">₹${bal.toFixed(2)}</span></td>
+      <td><div class="actions">
+        <button class="btn btn-ghost btn-sm action-btn" onclick="startEditCard('${id}')">Edit</button>
+        <button class="btn btn-danger btn-sm action-btn" onclick="confirmDelete('Delete card ${id}?','Cannot be undone.',()=>deleteCard('${id}'))">Delete</button>
+      </div></td>
+    </tr>
+    <tr id="edit-${id}" style="display:none;background:#fafafa;">
+      <td><span class="id-pill">${id}</span></td>
+      <td><input type="text" class="inline-in e-name" value="${esc(nm)}" /></td>
+      <td><input type="number" class="inline-in e-bal" value="${bal}" min="0" step="0.01" style="max-width:110px" /></td>
+      <td><div class="actions">
+        <button class="btn btn-success btn-sm" onclick="saveEditCard('${id}')">Save</button>
+        <button class="btn btn-ghost btn-sm" onclick="cancelEdit('${id}')">Cancel</button>
+      </div></td>
+    </tr>`;
+  document.getElementById("cards-body").insertAdjacentHTML("beforeend", rows);
+  document.getElementById("nc-id").value=""; document.getElementById("nc-name").value=""; document.getElementById("nc-bal").value="0";
+  cntDelta("cnt-cards",1);
+}
+
+function startEditCard(id) {
+  document.getElementById("row-"+id).style.display="none";
+  document.getElementById("edit-"+id).style.display="";
+}
+function cancelEdit(id) {
+  document.getElementById("edit-"+id).style.display="none";
+  document.getElementById("row-"+id).style.display="";
+}
+async function saveEditCard(id) {
+  const er  = document.getElementById("edit-"+id);
+  const nm  = er.querySelector(".e-name").value.trim();
+  const bal = parseFloat(er.querySelector(".e-bal").value);
+  if (!nm) { toast("Name is required.", false); return; }
+  if (isNaN(bal)||bal<0) { toast("Balance must be ≥ 0.", false); return; }
+  const res = await post("/admin/card/edit", {id, name:nm, balance:bal});
+  if (!res.ok) { toast(res.message, false); return; }
+  toast(res.message);
+  const dr = document.getElementById("row-"+id);
+  dr.querySelector(".cell-name").textContent = nm;
+  dr.querySelector(".cell-bal").innerHTML = `<span class="${balClass(bal)}">₹${bal.toFixed(2)}</span>`;
+  cancelEdit(id);
+}
+async function deleteCard(id) {
+  const res = await post("/admin/card/delete", {id});
+  if (!res.ok) { toast(res.message, false); return; }
+  toast(res.message);
+  document.getElementById("row-"+id)?.remove();
+  document.getElementById("edit-"+id)?.remove();
+  cntDelta("cnt-cards",-1);
+}
+
+/* ── STALL / PRODUCT MANAGEMENT ──────────────────────────────────── */
+async function addNewStall() {
+  const sid  = document.getElementById("ns-id").value.trim();
+  const prod = document.getElementById("ns-prod").value.trim();
+  const price= parseFloat(document.getElementById("ns-price").value)||0;
+  if (!sid||!prod) { toast("Stall ID and product name required.", false); return; }
+  const res = await post("/admin/product/add", {stall_id:sid, product_name:prod, price});
+  if (!res.ok) { toast(res.message, false); return; }
+  toast(res.message);
+  const safe = sid.replace(/-/g,"_");
+  if (!document.getElementById("sc-"+safe)) {
+    document.getElementById("stalls-grid").insertAdjacentHTML("beforeend", buildStallCard(sid, safe, res.row_id, prod, price));
+    cntDelta("cnt-stalls",1);
+  } else {
+    document.getElementById("prods-"+safe).insertAdjacentHTML("beforeend", buildProdRow(res.row_id, prod, price, sid));
+  }
+  document.getElementById("ns-prod").value=""; document.getElementById("ns-price").value="0";
+}
+
+async function addProdToStall(sid, btn) {
+  const row  = btn.closest(".add-prod-row");
+  const name = row.querySelector(".ap-name").value.trim();
+  const price= parseFloat(row.querySelector(".ap-price").value)||0;
+  if (!name) { toast("Product name required.", false); return; }
+  btn.disabled=true;
+  const res = await post("/admin/product/add", {stall_id:sid, product_name:name, price});
+  btn.disabled=false;
+  if (!res.ok) { toast(res.message, false); return; }
+  toast(res.message);
+  const safe = sid.replace(/-/g,"_");
+  document.getElementById("prods-"+safe).insertAdjacentHTML("beforeend", buildProdRow(res.row_id, name, price, sid));
+  row.querySelector(".ap-name").value=""; row.querySelector(".ap-price").value="0";
+}
+
+function startEditProd(rid) {
+  const row = document.getElementById("pr-"+rid);
+  row.querySelector(".prod-name").style.display="none";
+  row.querySelector(".prod-price").style.display="none";
+  row.querySelector(".edit-inputs").style.display="flex";
+  row.querySelector(".ep-edit").style.display="none";
+  row.querySelector(".ep-del").style.display="none";
+  row.querySelector(".ep-save").style.display="inline-flex";
+  row.querySelector(".ep-cancel").style.display="inline-flex";
+}
+function cancelEditProd(rid) {
+  const row = document.getElementById("pr-"+rid);
+  row.querySelector(".prod-name").style.display="";
+  row.querySelector(".prod-price").style.display="";
+  row.querySelector(".edit-inputs").style.display="none";
+  row.querySelector(".ep-edit").style.display="";
+  row.querySelector(".ep-del").style.display="";
+  row.querySelector(".ep-save").style.display="none";
+  row.querySelector(".ep-cancel").style.display="none";
+}
+async function saveEditProd(rid) {
+  const row  = document.getElementById("pr-"+rid);
+  const nm   = row.querySelector(".ep-name").value.trim();
+  const price= parseFloat(row.querySelector(".ep-price").value);
+  if (!nm) { toast("Name required.", false); return; }
+  if (isNaN(price)||price<0) { toast("Price must be ≥ 0.", false); return; }
+  const res = await post("/admin/product/edit", {row_id:rid, product_name:nm, price});
+  if (!res.ok) { toast(res.message, false); return; }
+  toast(res.message);
+  row.querySelector(".prod-name").textContent = nm;
+  row.querySelector(".prod-price").textContent = "₹"+price.toFixed(2);
+  row.querySelector(".ep-name").value=nm;
+  row.querySelector(".ep-price").value=price;
+  cancelEditProd(rid);
+}
+async function deleteProd(rid) {
+  const res = await post("/admin/product/delete", {row_id:rid});
+  if (!res.ok) { toast(res.message, false); return; }
+  toast(res.message);
+  document.getElementById("pr-"+rid)?.remove();
+}
+async function deleteStall(sid) {
+  const res = await post("/admin/stall/delete", {stall_id:sid});
+  if (!res.ok) { toast(res.message, false); return; }
+  toast(res.message);
+  const safe = sid.replace(/-/g,"_");
+  document.getElementById("sc-"+safe)?.remove();
+  cntDelta("cnt-stalls",-1);
+}
+
+async function saveStallPassword(sid, inputId) {
+  const password = document.getElementById(inputId).value;
+  const res = await post("/admin/stall/set_password", {stall_id:sid, password:password});
+  if (!res.ok) { toast(res.message, false); return; }
+  toast(res.message);
+}
+
+/* ── DOM builders ────────────────────────────────────────────────── */
+function buildStallCard(sid, safe, rid, prod, price) {
+  return `
+  <div class="stall-card" id="sc-${safe}">
+    <div class="stall-hdr">
+      <span class="stall-name">${esc(sid)}</span>
+      <button class="btn btn-danger btn-xs action-btn" onclick="confirmDelete('Delete stall ${esc(sid)}?','All products removed.',()=>deleteStall('${esc(sid)}'))">Delete Stall</button>
+    </div>
+    <div style="padding: 0.5rem 0.85rem; border-bottom: 1px solid var(--gray-100); display: flex; gap: 0.4rem; align-items: center; background: #fff;">
+      <label style="font-size: 0.65rem; color: var(--gray-500); margin: 0; text-transform: uppercase;">Pass:</label>
+      <input type="text" id="sp-${safe}" value="" placeholder="No password" style="padding: 0.25rem 0.45rem; font-size: 0.78rem; border-radius: 4px; flex: 1;" />
+      <button class="btn btn-ghost btn-xs action-btn" onclick="saveStallPassword('${esc(sid)}', 'sp-${safe}')">Save</button>
+    </div>
+    <div id="prods-${safe}">${buildProdRow(rid,prod,price,sid)}</div>
+    <div class="add-prod-row">
+      <input type="text" class="ap-name" placeholder="Product name" />
+      <input type="number" class="ap-price" placeholder="Price" min="0" step="0.01" style="max-width:80px" value="0" />
+      <button class="btn btn-ghost btn-xs action-btn" onclick="addProdToStall('${esc(sid)}',this)">Add</button>
+    </div>
+  </div>`;
+}
+
+function buildProdRow(rid, prod, price, sid) {
+  return `
+  <div class="prod-row" id="pr-${rid}">
+    <span class="prod-name">${esc(prod)}</span>
+    <span class="prod-price">₹${parseFloat(price).toFixed(2)}</span>
+    <div class="edit-inputs">
+      <input type="text" class="ep-name" value="${esc(prod)}" />
+      <input type="number" class="ep-price" value="${price}" min="0" step="0.01" style="max-width:75px" />
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost btn-xs ep-edit action-btn" onclick="startEditProd(${rid})">Edit</button>
+      <button class="btn btn-success btn-xs ep-save" style="display:none" onclick="saveEditProd(${rid})">Save</button>
+      <button class="btn btn-ghost btn-xs ep-cancel" style="display:none" onclick="cancelEditProd(${rid})">✕</button>
+      <button class="btn btn-danger btn-xs ep-del action-btn" onclick="confirmDelete('Delete ${esc(prod)}?','From ${esc(sid)}.',()=>deleteProd(${rid}))">Del</button>
+    </div>
+  </div>`;
+}
+
+/* ── Helpers ─────────────────────────────────────────────────────── */
+function balClass(b) { return b>=300?"bal-hi":b>0?"bal-med":"bal-lo"; }
+function cntDelta(id, d) { const el=document.getElementById(id); el.textContent=parseInt(el.textContent||"0")+d; }
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+
+function copyIp(btn, url) {
+  const ok = () => { btn.textContent="Copied!"; btn.classList.add("copied"); setTimeout(()=>{ btn.textContent="Copy"; btn.classList.remove("copied"); },2000); };
+  if (navigator.clipboard) { navigator.clipboard.writeText(url).then(ok).catch(fb); } else { fb(); }
+  function fb() { const t=document.createElement("textarea"); t.value=url; t.style.cssText="position:fixed;opacity:0"; document.body.appendChild(t); t.select(); document.execCommand("copy"); document.body.removeChild(t); ok(); }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Card Registry | POS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin:0; padding:0; }
+    :root {
+      --blue:    #2563eb;
+      --blue-bg: #eff6ff;
+      --green:   #16a34a;
+      --green-bg:#f0fdf4;
+      --red:     #dc2626;
+      --amber:   #d97706;
+      --gray-50: #f9fafb; --gray-100:#f3f4f6; --gray-200:#e5e7eb;
+      --gray-400:#9ca3af; --gray-600:#4b5563; --gray-900:#111827;
+      --radius:  8px;
+      --shadow:  0 1px 3px rgba(0,0,0,0.08);
+    }
+    body { font-family:'Inter',system-ui,sans-serif; background:var(--gray-50); color:var(--gray-900); min-height:100vh; padding:2rem 1rem 4rem; display:flex; flex-direction:column; align-items:center; }
+
+    .header { width:100%; max-width:680px; display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem; }
+    .header h1 { font-size:1rem; font-weight:700; }
+    .header h1 span { color:var(--blue); font-weight:400; font-size:0.85rem; margin-left:0.4rem; }
+    .back-link { font-size:0.78rem; color:var(--gray-600); text-decoration:none; padding:0.3rem 0.75rem; border:1px solid var(--gray-200); border-radius:var(--radius); background:#fff; transition:0.15s; }
+    .back-link:hover { border-color:var(--blue); color:var(--blue); }
+
+    .card { width:100%; max-width:680px; background:#fff; border:1px solid var(--gray-200); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+    table { width:100%; border-collapse:collapse; }
+    thead th { padding:0.75rem 1.25rem; text-align:left; font-size:0.7rem; font-weight:700; color:var(--gray-400); text-transform:uppercase; letter-spacing:0.06em; border-bottom:1px solid var(--gray-100); background:var(--gray-50); }
+    tbody tr { border-bottom:1px solid var(--gray-100); transition:background 0.1s; }
+    tbody tr:last-child { border-bottom:none; }
+    tbody tr:hover { background:var(--gray-50); }
+    tbody td { padding:0.85rem 1.25rem; font-size:0.875rem; }
+
+    .id-pill { display:inline-block; padding:0.15rem 0.55rem; border-radius:999px; font-size:0.72rem; font-weight:700; background:var(--blue-bg); color:var(--blue); }
+    .bal-hi  { color:var(--green);  font-weight:600; }
+    .bal-med { color:var(--amber);  font-weight:600; }
+    .bal-lo  { color:var(--red);    font-weight:600; }
+    .status-pill { display:inline-block; padding:0.15rem 0.55rem; border-radius:999px; font-size:0.72rem; font-weight:600; }
+    .status-good  { background:var(--green-bg); color:var(--green); }
+    .status-low   { background:#fffbeb; color:var(--amber); }
+    .status-empty { background:#fef2f2; color:var(--red); }
+
+    .footer { margin-top:1.5rem; font-size:0.75rem; color:var(--gray-400); }
+    .footer a { color:var(--blue); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Card Registry <span>{{ users|length }} cards</span></h1>
+    <a href="/" class="back-link">← Terminal</a>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Card ID</th>
+          <th>Name</th>
+          <th>Balance</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td><span class="id-pill">{{ u['ID'] }}</span></td>
+          <td>{{ u['Name'] }}</td>
+          <td class="{% if u['Balance'] >= 300 %}bal-hi{% elif u['Balance'] > 0 %}bal-med{% else %}bal-lo{% endif %}">
+            ₹{{ "%.2f"|format(u['Balance']) }}
+          </td>
+          <td>
+            {% if u['Balance'] >= 300 %}
+              <span class="status-pill status-good">Good</span>
+            {% elif u['Balance'] > 0 %}
+              <span class="status-pill status-low">Low</span>
+            {% else %}
+              <span class="status-pill status-empty">Empty</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="footer"><a href="/admin/manage">Manage →</a></p>
+</body>
+</html>

@@ -1,0 +1,4 @@
+{
+  "admin_password": "admin123",
+  "secret_key": "change-this-to-a-random-string-in-production"
+}
