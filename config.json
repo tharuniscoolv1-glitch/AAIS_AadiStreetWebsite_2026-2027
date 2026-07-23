@@ -1,4 +1,9 @@
 {
   "admin_password": "admin123",
-  "secret_key": "change-this-to-a-random-string-in-production"
+  "secret_key": "0xq87fN9uoj58ye94r7f3tk2",
+  "aadi_festival_api": {
+    "enabled": true,
+    "base_url": "https://aadi-street-festival-api-2026.azurewebsites.net/api/festival",
+    "api_key": "OMITTED"
+  }
 }

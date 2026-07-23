@@ -13,6 +13,13 @@ import sqlite3
 import os
 import socket
 import json
+import time
+import secrets
+import hashlib
+import hmac
+import uuid
+import re
+import requests
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 
@@ -195,6 +202,69 @@ def require_unlocked():
 # Database Helpers
 # ---------------------------------------------------------------------------
 
+def get_api_config():
+    """Reads Aadi Festival API settings from env vars or config.json."""
+    cfg = CONFIG.get("aadi_festival_api", {})
+    return {
+        "enabled":  cfg.get("enabled", False),
+        "base_url": os.environ.get("AADI_API_BASE_URL", cfg.get("base_url", "")),
+        "api_key":  os.environ.get("AADI_API_KEY",      cfg.get("api_key",  ""))
+    }
+
+def call_aadi_api(path, method="GET", payload=None):
+    """
+    Send a request to the Aadi Festival API using the X-Aadi-Api-Key header.
+    Matches the pattern used in AADI_STALL_TESTER_V3.py.
+    Returns (status_code, response_body_dict).
+    """
+    cfg = get_api_config()
+    response = requests.request(
+        method,
+        f"{cfg['base_url']}{path}",
+        headers={"X-Aadi-Api-Key": cfg["api_key"]},
+        json=payload,
+        timeout=20,
+    )
+    try:
+        body = response.json()
+    except Exception:
+        body = {"error": "invalid_server_response"}
+    return response.status_code, body
+
+
+def cosmos_get_card(token_number):
+    """
+    Fetch live wallet balance from Cosmos DB via coupons:read.
+    token_number must be the 3-digit string used as the coupon/card number.
+    Returns a dict with keys: cardNumber, availableBalance, walletStatus, updatedAt
+    or None if the card is not found / API unreachable.
+    """
+    status, body = call_aadi_api(f"/coupons?couponNumber={token_number}")
+    if status == 200:
+        return body.get("coupon")
+    return None
+
+
+def cosmos_get_account(token_number):
+    """
+    Fetch student name and grade from Cosmos DB via accounts:lookup.
+    Returns a dict with keys: cardNumber, studentName, grade, status
+    or None if not found.
+    """
+    status, body = call_aadi_api(f"/accounts?couponNumber={token_number}")
+    if status == 200:
+        return body.get("account")
+    return None
+
+
+def cosmos_token_number(user_id):
+    """
+    Extract a 3-digit token/coupon number from an arbitrary card ID string.
+    Uses the last 3 digits found in the string, zero-padded if needed.
+    """
+    digits = "".join(c for c in str(user_id) if c.isdigit())
+    return digits[-3:].zfill(3) if digits else "000"
+
 def get_users_conn():
     """Return a connection to the Users/Cards database."""
     conn = sqlite3.connect(USERS_DB)
@@ -215,9 +285,11 @@ def get_stalls_conn():
 
 def init_databases():
     """
-    Initialise both SQLite databases with tables and realistic sample data.
-    Safe to call on every startup; uses INSERT OR IGNORE so data isn't duplicated.
+    Initialise both SQLite databases with tables and seed data.
+    When the Aadi Festival API is enabled, card data comes from Cosmos DB;
+    sample cards are only seeded in local-only (offline) mode.
     """
+    api_cfg = get_api_config()
 
     # ── Users / Cards database ────────────────────────────────────────────
     with get_users_conn() as conn:
@@ -229,18 +301,20 @@ def init_databases():
             )
         """)
 
-        sample_users = [
-            ("USR001", "Alice Johnson",  750.00),
-            ("USR002", "Bob Smith",      500.00),
-            ("USR003", "Carol White",   1200.00),
-            ("USR004", "David Brown",    250.00),
-            ("USR005", "Eve Davis",       50.00),   # low-balance tester
-            ("USR006", "Frank Miller",      0.00),   # zero-balance tester
-        ]
-        conn.executemany(
-            "INSERT OR IGNORE INTO cards (ID, Name, Balance) VALUES (?, ?, ?)",
-            sample_users
-        )
+        if not api_cfg["enabled"]:
+            # Seed sample data only when running in local/offline mode
+            sample_users = [
+                ("USR001", "Alice Johnson",  750.00),
+                ("USR002", "Bob Smith",      500.00),
+                ("USR003", "Carol White",   1200.00),
+                ("USR004", "David Brown",    250.00),
+                ("USR005", "Eve Davis",       50.00),
+                ("USR006", "Frank Miller",     0.00),
+            ]
+            conn.executemany(
+                "INSERT OR IGNORE INTO cards (ID, Name, Balance) VALUES (?, ?, ?)",
+                sample_users
+            )
         conn.commit()
 
     # ── Stalls / Inventory database ───────────────────────────────────────
@@ -416,17 +490,52 @@ def api_verify_stall():
 @app.route("/api/check_user/<user_id>")
 def api_check_user(user_id):
     """
-    AJAX endpoint — checks if a user ID exists and returns their balance & name.
-    Used for live balance preview before submission.
+    AJAX endpoint — checks if a user/card exists and returns live balance & name.
+    When Cosmos DB is enabled, fetches from the live API and caches locally.
+    Falls back to local SQLite if the API is disabled or unreachable.
     """
+    uid = user_id.strip().upper()
+    api_cfg = get_api_config()
+
+    if api_cfg["enabled"]:
+        token = cosmos_token_number(uid)
+        coupon  = cosmos_get_card(token)
+        account = cosmos_get_account(token)
+
+        if coupon is None and account is None:
+            # Nothing found in Cosmos — not a valid card
+            return jsonify({"exists": False})
+
+        name    = (account or {}).get("studentName", f"Card {token}")
+        balance = float((coupon or {}).get("availableBalance", 0))
+        status  = (coupon or {}).get("walletStatus", "Unknown")
+
+        # Sync to local SQLite cache so submit() can use it without a second API call
+        with get_users_conn() as conn:
+            conn.execute(
+                """INSERT INTO cards (ID, Name, Balance) VALUES (?, ?, ?)
+                   ON CONFLICT(ID) DO UPDATE SET Name=excluded.Name, Balance=excluded.Balance""",
+                (uid, name, balance)
+            )
+            conn.commit()
+
+        return jsonify({
+            "exists":  True,
+            "name":    name,
+            "balance": balance,
+            "status":  status,
+            "source":  "cosmos"
+        })
+
+    # ── Offline / local SQLite path ────────────────────────────────────────
     with get_users_conn() as conn:
         row = conn.execute(
             "SELECT ID, Name, Balance FROM cards WHERE ID = ?",
-            (user_id.upper(),)
+            (uid,)
         ).fetchone()
 
     if row:
-        return jsonify({"exists": True, "name": row["Name"], "balance": row["Balance"]})
+        return jsonify({"exists": True, "name": row["Name"], "balance": row["Balance"], "source": "local"})
     return jsonify({"exists": False})
 
 
@@ -470,20 +579,61 @@ def submit():
         return redirect(url_for("index", stall_id=stall_id,
             message="Incorrect stall password.", msg_type="error"))
 
-    # ── 2. Look up user ───────────────────────────────────────────────────
-    with get_users_conn() as users_conn:
-        user = users_conn.execute(
-            "SELECT ID, Name, Balance FROM cards WHERE ID = ?",
-            (user_id,)
-        ).fetchone()
+    # ── 2. Look up user (live from Cosmos DB if enabled, else local SQLite) ──
+    api_cfg = get_api_config()
 
-    if not user:
-        return redirect(url_for(
-            "index",
-            stall_id=stall_id,
-            message=f"✗ Card ID '{user_id}' not found. Please try again.",
-            msg_type="error"
-        ))
+    if api_cfg["enabled"]:
+        # Pull live balance and student name from Cosmos DB
+        token   = cosmos_token_number(user_id)
+        coupon  = cosmos_get_card(token)
+        account = cosmos_get_account(token)
+
+        if coupon is None:
+            return redirect(url_for(
+                "index",
+                stall_id=stall_id,
+                message=f"\u2717 Card/token '{user_id}' not found in the Cosmos DB system. Please try again.",
+                msg_type="error"
+            ))
+
+        if (coupon.get("walletStatus") or "").lower() != "active":
+            return redirect(url_for(
+                "index",
+                stall_id=stall_id,
+                message=f"\u2717 Wallet for token '{user_id}' is not active (status: {coupon.get('walletStatus', 'Unknown')}).",
+                msg_type="error"
+            ))
+
+        name    = (account or {}).get("studentName", f"Card {token}")
+        balance = float(coupon.get("availableBalance", 0))
+
+        # Sync into local SQLite so admin pages stay consistent
+        with get_users_conn() as conn:
+            conn.execute(
+                """INSERT INTO cards (ID, Name, Balance) VALUES (?, ?, ?)
+                   ON CONFLICT(ID) DO UPDATE SET Name=excluded.Name, Balance=excluded.Balance""",
+                (user_id, name, balance)
+            )
+            conn.commit()
+
+        # Create a dict-like object for the rest of the route
+        user = {"ID": user_id, "Name": name, "Balance": balance}
+
+    else:
+        # Local SQLite lookup
+        with get_users_conn() as users_conn:
+            row = users_conn.execute(
+                "SELECT ID, Name, Balance FROM cards WHERE ID = ?",
+                (user_id,)
+            ).fetchone()
+        if not row:
+            return redirect(url_for(
+                "index",
+                stall_id=stall_id,
+                message=f"\u2717 Card ID '{user_id}' not found. Please try again.",
+                msg_type="error"
+            ))
+        user = {"ID": row["ID"], "Name": row["Name"], "Balance": row["Balance"]}
 
     # ── 3. Look up product & price ────────────────────────────────────────
     with get_stalls_conn() as stalls_conn:
@@ -496,46 +646,102 @@ def submit():
         return redirect(url_for(
             "index",
             stall_id=stall_id,
-            message=f"✗ Product '{product_name}' not found in {stall_id}.",
+            message=f"\u2717 Product '{product_name}' not found in {stall_id}.",
             msg_type="error"
         ))
 
     price           = product["Price"]
     current_balance = user["Balance"]
 
-    # ── 4. Check balance ──────────────────────────────────────────────────
-    if current_balance < price:
-        shortfall = price - current_balance
-        return redirect(url_for(
-            "index",
-            stall_id=stall_id,
-            message=(
-                f"✗ Insufficient balance for {user['Name']} ({user_id}). "
-                f"Balance: ₹{current_balance:.2f} | "
-                f"Required: ₹{price:.2f} | "
-                f"Shortfall: ₹{shortfall:.2f}"
-            ),
-            msg_type="error"
-        ))
+    # ── 4. Check balance (local SQLite only; Cosmos DB handles it server-side) ─
+    if not api_cfg["enabled"]:
+        if current_balance < price:
+            shortfall = price - current_balance
+            return redirect(url_for(
+                "index",
+                stall_id=stall_id,
+                message=(
+                    f"\u2717 Insufficient balance for {user['Name']} ({user_id}). "
+                    f"Balance: \u20b9{current_balance:.2f} | "
+                    f"Required: \u20b9{price:.2f} | "
+                    f"Shortfall: \u20b9{shortfall:.2f}"
+                ),
+                msg_type="error"
+            ))
 
     # ── 5. Deduct balance ─────────────────────────────────────────────────
-    new_balance = current_balance - price
-    with get_users_conn() as users_conn:
-        users_conn.execute(
-            "UPDATE cards SET Balance = ? WHERE ID = ?",
-            (new_balance, user_id)
+    if api_cfg["enabled"]:
+        # ── Cosmos DB path: call Aadi API V3 (gated on enabled=true) ──────
+        # tokenNumber must be exactly 3 digits (last 3 digits of user_id)
+        digits       = "".join(c for c in user_id if c.isdigit())
+        token_number = digits[-3:].zfill(3) if digits else "000"
+        idempotency_key = f"purchase-{stall_id}-{token_number}-{uuid.uuid4().hex[:16]}"
+
+        status_code, api_body = call_aadi_api(
+            f"/stalls/{stall_id}/deductions",
+            method="POST",
+            payload={
+                "tokenNumber":   token_number,
+                "amount":        int(price),
+                "idempotencyKey": idempotency_key,
+            },
         )
-        users_conn.commit()
+
+        if status_code == 200 and api_body.get("status") == "approved":
+            # Approved — mirror the deduction locally
+            new_balance = current_balance - price
+            with get_users_conn() as users_conn:
+                users_conn.execute(
+                    "UPDATE cards SET Balance = ? WHERE ID = ?",
+                    (new_balance, user_id)
+                )
+                users_conn.commit()
+
+        elif status_code == 409 and api_body.get("status") == "declined":
+            return redirect(url_for(
+                "index",
+                stall_id=stall_id,
+                message="\u2717 Purchase declined: insufficient funds on the Cosmos DB account.",
+                msg_type="error"
+            ))
+
+        elif status_code == 409:
+            return redirect(url_for(
+                "index",
+                stall_id=stall_id,
+                message="\u2717 Transaction conflict: idempotency key reused or duplicate request.",
+                msg_type="error"
+            ))
+
+        else:
+            err_msg = api_body.get("error", f"HTTP {status_code}")
+            return redirect(url_for(
+                "index",
+                stall_id=stall_id,
+                message=f"\u2717 Aadi API error ({status_code}): {err_msg}",
+                msg_type="error"
+            ))
+
+    else:
+        # ── Local SQLite path (enabled=false) ─────────────────────────────
+        new_balance = current_balance - price
+        with get_users_conn() as users_conn:
+            users_conn.execute(
+                "UPDATE cards SET Balance = ? WHERE ID = ?",
+                (new_balance, user_id)
+            )
+            users_conn.commit()
 
     # ── 6. Redirect with success message ──────────────────────────────────
+    new_balance = current_balance - price
     return redirect(url_for(
         "index",
-        stall_id=stall_id,   # ← Stall_ID is PRESERVED here
+        stall_id=stall_id,   # stall_id is preserved so the page stays on this stall
         message=(
-            f"✔ Transaction Successful! "
+            f"\u2714 Transaction Successful! "
             f"{user['Name']} ({user_id}) purchased '{product_name}' "
-            f"from {stall_id} for ₹{price:.2f}. "
-            f"Remaining Balance: ₹{new_balance:.2f}"
+            f"from {stall_id} for \u20b9{price:.2f}. "
+            f"Remaining Balance: \u20b9{new_balance:.2f}"
         ),
         msg_type="success"
     ))
@@ -545,15 +751,44 @@ def submit():
 def admin_users():
     """
     Simple admin view — lists all users and their current balances.
-    Protected with authentication: only admins can view.
+    When Cosmos DB is enabled, refreshes every cached card's live balance.
     """
     if not session.get("unlocked"):
         return redirect(url_for("admin_login"))
-    with get_users_conn() as conn:
-        users = conn.execute(
-            "SELECT ID, Name, Balance FROM cards ORDER BY ID"
-        ).fetchall()
-    return render_template("admin_users.html", users=users)
+
+    api_cfg = get_api_config()
+    users = []
+
+    if api_cfg["enabled"]:
+        # Pull every token cached locally and refresh it from Cosmos
+        with get_users_conn() as conn:
+            cached = conn.execute("SELECT ID FROM cards ORDER BY ID").fetchall()
+
+        refreshed = []
+        for row in cached:
+            token   = cosmos_token_number(row["ID"])
+            coupon  = cosmos_get_card(token)
+            account = cosmos_get_account(token)
+            if coupon:
+                name    = (account or {}).get("studentName", f"Card {token}")
+                balance = float(coupon.get("availableBalance", 0))
+                status  = coupon.get("walletStatus", "Unknown")
+                # Update local cache
+                with get_users_conn() as conn:
+                    conn.execute(
+                        """INSERT INTO cards (ID, Name, Balance) VALUES (?, ?, ?)
+                           ON CONFLICT(ID) DO UPDATE SET Name=excluded.Name, Balance=excluded.Balance""",
+                        (row["ID"], name, balance)
+                    )
+                    conn.commit()
+                refreshed.append({"ID": row["ID"], "Name": name, "Balance": balance, "Status": status})
+        users = refreshed
+    else:
+        with get_users_conn() as conn:
+            rows = conn.execute("SELECT ID, Name, Balance FROM cards ORDER BY ID").fetchall()
+        users = [{"ID": r["ID"], "Name": r["Name"], "Balance": r["Balance"], "Status": "Local"} for r in rows]
+
+    return render_template("admin_users.html", users=users, cosmos_enabled=api_cfg["enabled"])
 
 
 
@@ -594,61 +829,84 @@ def admin_logout():
 def admin_manage():
     """
     Management panel — requires login.
-    Redirects to /admin/login if the session is not authenticated.
+    When Cosmos DB is enabled, card data is fetched live from the API
+    and the card add/edit/delete actions are disabled (read-only).
+    Stall/product/password management is always local SQLite.
     """
     if not session.get("unlocked"):
         return redirect(url_for("admin_login"))
 
-    with get_users_conn() as conn:
-        users = conn.execute(
-            "SELECT ID, Name, Balance FROM cards ORDER BY ID"
-        ).fetchall()
+    api_cfg = get_api_config()
+    users   = []
 
+    if api_cfg["enabled"]:
+        # Refresh every cached card from Cosmos and rebuild the list
+        with get_users_conn() as conn:
+            cached_ids = [r["ID"] for r in conn.execute("SELECT ID FROM cards ORDER BY ID").fetchall()]
+
+        for card_id in cached_ids:
+            token   = cosmos_token_number(card_id)
+            coupon  = cosmos_get_card(token)
+            account = cosmos_get_account(token)
+            if coupon:
+                name    = (account or {}).get("studentName", f"Card {token}")
+                balance = float(coupon.get("availableBalance", 0))
+                status  = coupon.get("walletStatus", "Unknown")
+                with get_users_conn() as conn:
+                    conn.execute(
+                        """INSERT INTO cards (ID, Name, Balance) VALUES (?, ?, ?)
+                           ON CONFLICT(ID) DO UPDATE SET Name=excluded.Name, Balance=excluded.Balance""",
+                        (card_id, name, balance)
+                    )
+                    conn.commit()
+                users.append({"ID": card_id, "Name": name, "Balance": balance, "Status": status})
+    else:
+        with get_users_conn() as conn:
+            rows = conn.execute("SELECT ID, Name, Balance FROM cards ORDER BY ID").fetchall()
+        users = [{"ID": r["ID"], "Name": r["Name"], "Balance": r["Balance"], "Status": "Local"} for r in rows]
+
+    # Stalls always from local SQLite (Cosmos has no product/catalogue write API for us)
     with get_stalls_conn() as conn:
-        # Group inventory by stall
-        rows = conn.execute(
+        rows    = conn.execute(
             "SELECT Row_ID, Stall_ID, Product_Name, Price FROM inventory ORDER BY Stall_ID, Product_Name"
         ).fetchall()
-        # Fetch passwords for stalls
         pw_rows = conn.execute("SELECT Stall_ID, Password FROM stalls").fetchall()
 
-    passwords = {p["Stall_ID"]: p["Password"] for p in pw_rows}
-
-    # Build a dict: { stall_id: { "password": ..., "products": [ ... ] } }
+    passwords   = {p["Stall_ID"]: p["Password"] for p in pw_rows}
     stalls_dict = {}
     for r in rows:
         sid = r["Stall_ID"]
         if sid not in stalls_dict:
-            stalls_dict[sid] = {
-                "password": passwords.get(sid, ""),
-                "products": []
-            }
+            stalls_dict[sid] = {"password": passwords.get(sid, ""), "products": []}
         stalls_dict[sid]["products"].append({
             "row_id":  r["Row_ID"],
             "product": r["Product_Name"],
             "price":   r["Price"],
         })
-
-    # Also handle stalls that might exist but have no products yet
     for sid, pw in passwords.items():
         if sid not in stalls_dict:
-            stalls_dict[sid] = {
-                "password": pw,
-                "products": []
-            }
+            stalls_dict[sid] = {"password": pw, "products": []}
 
     return render_template(
         "admin_manage.html",
         users=users,
         stalls_dict=stalls_dict,
+        cosmos_enabled=api_cfg["enabled"],
     )
 
 
 @app.route("/admin/card/add", methods=["POST"])
 def admin_card_add():
-    """Add a new card. Returns JSON {ok, message}."""
+    """Add a new card. Blocked when Cosmos DB is enabled — cards are managed there."""
     guard = require_unlocked()
     if guard: return guard
+
+    if get_api_config()["enabled"]:
+        return jsonify({
+            "ok": False,
+            "message": "Card creation is managed in Cosmos DB. Add the student there and the card will appear here automatically on next lookup."
+        })
+
     data    = request.get_json()
     card_id = (data.get("id", "") or "").strip().upper()
     name    = (data.get("name", "") or "").strip()
@@ -656,7 +914,6 @@ def admin_card_add():
 
     if not card_id or not name:
         return jsonify({"ok": False, "message": "Card ID and Name are required."})
-
     try:
         balance = float(balance)
         if balance < 0:
@@ -678,9 +935,16 @@ def admin_card_add():
 
 @app.route("/admin/card/edit", methods=["POST"])
 def admin_card_edit():
-    """Edit a card's name and/or balance. Returns JSON {ok, message, new_balance}."""
+    """Edit a card's name/balance. Blocked when Cosmos DB is enabled."""
     guard = require_unlocked()
     if guard: return guard
+
+    if get_api_config()["enabled"]:
+        return jsonify({
+            "ok": False,
+            "message": "Card balances are managed by Cosmos DB. Changes must be made there by the festival organiser."
+        })
+
     data    = request.get_json()
     card_id = (data.get("id", "") or "").strip().upper()
     name    = (data.get("name", "") or "").strip()
@@ -689,14 +953,12 @@ def admin_card_edit():
     if not card_id:
         return jsonify({"ok": False, "message": "Card ID is required."})
 
-    # Check existence
     with get_users_conn() as conn:
         row = conn.execute("SELECT * FROM cards WHERE ID = ?", (card_id,)).fetchone()
     if not row:
         return jsonify({"ok": False, "message": f"Card '{card_id}' not found."})
 
-    # Use existing values if not provided
-    new_name    = name if name else row["Name"]
+    new_name = name if name else row["Name"]
     try:
         new_balance = float(balance) if balance is not None else row["Balance"]
         if new_balance < 0:
@@ -721,9 +983,16 @@ def admin_card_edit():
 
 @app.route("/admin/card/delete", methods=["POST"])
 def admin_card_delete():
-    """Delete a card by ID. Returns JSON {ok, message}."""
+    """Delete a card. Blocked when Cosmos DB is enabled."""
     guard = require_unlocked()
     if guard: return guard
+
+    if get_api_config()["enabled"]:
+        return jsonify({
+            "ok": False,
+            "message": "Cards are managed in Cosmos DB and cannot be deleted here. Contact the festival organiser."
+        })
+
     data    = request.get_json()
     card_id = (data.get("id", "") or "").strip().upper()
 
@@ -739,7 +1008,9 @@ def admin_card_delete():
     return jsonify({"ok": False, "message": f"Card '{card_id}' not found."})
 
 
-# ── Stall / Product Management API ───────────────────────────────────────
+# ── Stall / Product Management API (always local SQLite) ─────────────────
+# The Aadi Festival API has no endpoint for stall product management;
+# stalls.db remains the authoritative source for products and passwords.
 
 @app.route("/admin/product/add", methods=["POST"])
 def admin_product_add():

@@ -230,7 +230,7 @@
   </div>
 </nav>
 
-<!-- ── IP Strip ────────────────────────────────────────────────────── -->
+<!-- ── IP Strip ────────────────────────────────────────── -->
 <div class="ip-strip">
   <span class="ip-label">LAN:</span>
   <div class="ip-chips">
@@ -241,6 +241,12 @@
     </div>
     {% endfor %}
   </div>
+  {% if cosmos_enabled %}
+  <span style="margin-left:auto;display:inline-flex;align-items:center;gap:0.4rem;font-size:0.72rem;font-weight:600;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:999px;padding:0.15rem 0.7rem;">
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="#7c3aed"><circle cx="5" cy="5" r="4"/></svg>
+    Live · Cosmos DB
+  </span>
+  {% endif %}
 </div>
 
 <!-- ── Toast ───────────────────────────────────────────────────────── -->
@@ -278,6 +284,15 @@
   <!-- ── CARDS TAB ──────────────────────────────────────────────────── -->
   <div class="tab-pane active" id="tab-cards">
 
+    {% if cosmos_enabled %}
+    <div style="display:flex;align-items:flex-start;gap:0.75rem;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:0.9rem 1.1rem;margin-bottom:1.25rem;">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style="flex-shrink:0;margin-top:1px" stroke="#7c3aed" stroke-width="1.7"><circle cx="10" cy="10" r="8"/><path d="M10 6v4m0 4h.01" stroke-linecap="round"/></svg>
+      <div>
+        <p style="font-size:0.82rem;font-weight:700;color:#5b21b6;margin-bottom:0.2rem;">Live data from Cosmos DB</p>
+        <p style="font-size:0.78rem;color:#6d28d9;">Card balances and names are pulled live from the festival database. Add, edit, or remove students via the festival organiser — changes sync here automatically on next lookup.</p>
+      </div>
+    </div>
+    {% else %}
     <div class="add-panel">
       <div class="form-row">
         <div class="field"><label>Card ID</label><input type="text" id="nc-id" placeholder="USR010" autocapitalize="characters" /></div>
@@ -286,12 +301,19 @@
         <button class="btn btn-primary action-btn" onclick="addCard()">Add Card</button>
       </div>
     </div>
+    {% endif %}
 
-    <div class="section-hdr"><h2>All Cards</h2></div>
+    <div class="section-hdr">
+      <h2>All Cards</h2>
+      {% if cosmos_enabled %}<span style="font-size:0.72rem;color:#7c3aed;font-weight:600;">⬤ Cosmos DB · read-only</span>{% endif %}
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>ID</th><th>Name</th><th>Balance</th><th>Actions</th></tr>
+          <tr>
+            <th>ID</th><th>Name</th><th>Balance</th><th>Wallet Status</th>
+            {% if not cosmos_enabled %}<th>Actions</th>{% endif %}
+          </tr>
         </thead>
         <tbody id="cards-body">
           {% for u in users %}
@@ -304,16 +326,30 @@
               </span>
             </td>
             <td>
+              {% set s = u.get('Status', 'Local') %}
+              {% if s == 'Active' %}
+                <span style="font-size:0.72rem;font-weight:600;color:#16a34a;background:#f0fdf4;border:1px solid #bbf7d0;padding:0.15rem 0.5rem;border-radius:999px;">✓ Active</span>
+              {% elif s == 'Local' %}
+                <span style="font-size:0.72rem;color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb;padding:0.15rem 0.5rem;border-radius:999px;">Local</span>
+              {% else %}
+                <span style="font-size:0.72rem;font-weight:600;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;padding:0.15rem 0.5rem;border-radius:999px;">{{ s }}</span>
+              {% endif %}
+            </td>
+            {% if not cosmos_enabled %}
+            <td>
               <div class="actions">
                 <button class="btn btn-ghost btn-sm action-btn" onclick="startEditCard('{{ u['ID'] }}')">Edit</button>
                 <button class="btn btn-danger btn-sm action-btn" onclick="confirmDelete('Delete card {{ u['ID'] }}?','Cannot be undone.',()=>deleteCard('{{ u['ID'] }}'))">Delete</button>
               </div>
             </td>
+            {% endif %}
           </tr>
+          {% if not cosmos_enabled %}
           <tr id="edit-{{ u['ID'] }}" style="display:none; background:#fafafa;">
             <td><span class="id-pill">{{ u['ID'] }}</span></td>
             <td><input type="text" class="inline-in e-name" value="{{ u['Name'] }}" /></td>
             <td><input type="number" class="inline-in e-bal" value="{{ u['Balance'] }}" min="0" step="0.01" style="max-width:110px" /></td>
+            <td></td>
             <td>
               <div class="actions">
                 <button class="btn btn-success btn-sm" onclick="saveEditCard('{{ u['ID'] }}')">Save</button>
@@ -321,12 +357,16 @@
               </div>
             </td>
           </tr>
+          {% endif %}
           {% endfor %}
         </tbody>
       </table>
-      {% if not users %}<div class="empty">No cards yet.</div>{% endif %}
+      {% if not users %}
+      <div class="empty">{% if cosmos_enabled %}No cards have been looked up yet. Use the terminal to scan a token and it will appear here.{% else %}No cards yet.{% endif %}</div>
+      {% endif %}
     </div>
   </div>
+
 
   <!-- ── STALLS TAB ──────────────────────────────────────────────────── -->
   <div class="tab-pane" id="tab-stalls">
