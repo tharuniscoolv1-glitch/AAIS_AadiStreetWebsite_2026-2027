@@ -4,6 +4,6 @@
   "aadi_festival_api": {
     "enabled": true,
     "base_url": "https://aadi-street-festival-api-2026.azurewebsites.net/api/festival",
-    "api_key": "OMITTED"
+    "api_key": ""
   }
 }

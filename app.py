@@ -259,11 +259,27 @@ def cosmos_get_account(token_number):
 
 def cosmos_token_number(user_id):
     """
-    Extract a 3-digit token/coupon number from an arbitrary card ID string.
-    Uses the last 3 digits found in the string, zero-padded if needed.
+    Extract the token/coupon number from a card ID string for use with the Aadi API.
+
+    Rules:
+      - Strip all non-digit characters (e.g. 'CARD-123' -> '123').
+      - Zero-pad to at least 3 digits if fewer digits remain (e.g. '7' -> '007').
+      - Pass the result as-is to the API — do NOT truncate 4-digit IDs.
+        A 4-digit token returns 404 from the API, giving a clear error rather
+        than silently looking up the wrong 3-digit card.
+
+    Examples:
+      '123'      -> '123'   (3-digit: direct pass-through)
+      '1234'     -> '1234'  (4-digit: sent to API, returns 404 cleanly)
+      'CARD-007' -> '007'   (strip prefix, keep digits)
+      '7'        -> '007'   (pad to minimum 3)
+      ''         -> '000'   (no digits: safe sentinel)
     """
     digits = "".join(c for c in str(user_id) if c.isdigit())
-    return digits[-3:].zfill(3) if digits else "000"
+    if not digits:
+        return "000"
+    # Pad to minimum 3 digits; never truncate
+    return digits.zfill(3)
 
 def get_users_conn():
     """Return a connection to the Users/Cards database."""
@@ -374,19 +390,22 @@ def init_databases():
             )
         """)
 
-        # Seed passwords for the sample stalls (INSERT OR IGNORE so not overwritten)
-        sample_stall_passwords = [
-            ("STALL-A", "1234"),
-            ("STALL-B", "1234"),
-            ("STALL-C", "1234"),
-            ("STALL-D", "1234"),
-            ("STALL-E", "1234"),
-        ]
-        conn.executemany(
-            "INSERT OR IGNORE INTO stalls (Stall_ID, Password) VALUES (?, ?)",
-            sample_stall_passwords
-        )
-        conn.commit()
+        # Seed passwords for sample stalls ONLY if no stalls exist in database
+        count = conn.execute("SELECT COUNT(*) FROM stalls").fetchone()[0]
+        if count == 0:
+            sample_stall_passwords = [
+                ("STALL-A", "1234"),
+                ("STALL-B", "1234"),
+                ("STALL-C", "1234"),
+                ("STALL-D", "1234"),
+                ("STALL-E", "1234"),
+                ("STALL-F", "1234"),
+            ]
+            conn.executemany(
+                "INSERT OR IGNORE INTO stalls (Stall_ID, Password) VALUES (?, ?)",
+                sample_stall_passwords
+            )
+            conn.commit()
 
     print("[OK] Databases initialised successfully.")
 
@@ -672,9 +691,8 @@ def submit():
     # ── 5. Deduct balance ─────────────────────────────────────────────────
     if api_cfg["enabled"]:
         # ── Cosmos DB path: call Aadi API V3 (gated on enabled=true) ──────
-        # tokenNumber must be exactly 3 digits (last 3 digits of user_id)
-        digits       = "".join(c for c in user_id if c.isdigit())
-        token_number = digits[-3:].zfill(3) if digits else "000"
+        # Use cosmos_token_number() — preserves 3- or 4-digit IDs without truncation.
+        token_number    = cosmos_token_number(user_id)
         idempotency_key = f"purchase-{stall_id}-{token_number}-{uuid.uuid4().hex[:16]}"
 
         status_code, api_body = call_aadi_api(
